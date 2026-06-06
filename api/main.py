@@ -132,7 +132,16 @@ def investigate(request: InvestigateRequest):
     try:
         result = graph.invoke(initial_state)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Agent error: {str(e)}")
+        err = str(e)
+        if "429" in err or "RESOURCE_EXHAUSTED" in err or "quota" in err.lower():
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    "Gemini API rate limit reached. Each question uses several AI calls. "
+                    "Wait a minute and try again, or upgrade your Google AI API quota."
+                ),
+            )
+        raise HTTPException(status_code=500, detail=f"Agent error: {err}")
 
     # Return all agent outputs to the frontend
     return {

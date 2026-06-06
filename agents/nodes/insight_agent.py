@@ -2,6 +2,7 @@ import os
 from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
 from agents.state import GraphState
+from agents.utils import sample_json_for_prompt
 
 load_dotenv()
 
@@ -17,7 +18,7 @@ def insight_agent_node(state: GraphState) -> GraphState:
 
     context_parts.append(f"User question: {state['user_question']}")
     context_parts.append(f"SQL query used: {state['generated_sql']}")
-    context_parts.append(f"Query result: {state['sql_result']}")
+    context_parts.append(f"Query result: {sample_json_for_prompt(state['sql_result'])}")
 
     if state["stats_result"]:
         context_parts.append(f"Statistical analysis: {state['stats_result']}")

@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 from langchain_google_genai import ChatGoogleGenerativeAI
 from agents.state import GraphState
+from agents.utils import truncate_rows_for_agents
 
 load_dotenv()
 
@@ -18,20 +19,37 @@ llm = ChatGoogleGenerativeAI(
 )
 
 def query_agent_node(state: GraphState) -> GraphState:
+    table_name = state["dataset_name"]
+
     # Build prompt — give Gemini the question and schema
     prompt = f"""
 You are an expert SQL analyst. Write a single PostgreSQL SQL query to answer the user's question.
 
 User question: {state['user_question']}
 
+Table to query: {table_name}
+
 Database schema:
 {state['schema_context']}
 
 Rules:
 - Return ONLY the raw SQL query, no explanation, no markdown, no code fences
-- Use only the table and column names shown in the schema above
-- Do not use any columns that are not in the schema
+- Query ONLY the table "{table_name}" — use this exact table name
+- Use only column names from the schema above
+- Prefer aggregated queries (GROUP BY, COUNT, AVG, SUM) instead of returning raw rows
+- For "show X by Y" or breakdown questions: SELECT y, COUNT(*) AS count FROM {table_name} GROUP BY y ORDER BY count DESC
+- For correlation between two numeric columns: SELECT CORR(col1, col2) AS correlation FROM {table_name};
+  Do NOT return all row pairs — use CORR() or a small aggregated result
+- For comparisons of averages: use GROUP BY with AVG()
+- If you must return individual rows, add LIMIT 100 at the end
+- Never use SELECT * on the full table without aggregation or LIMIT
 - End the query with a semicolon
+- For category/segment/group questions: GROUP BY the relevant text column, ORDER BY count DESC
+- For time trends: GROUP BY whatever date or year or month column exists in the schema
+- For top N questions: add ORDER BY and LIMIT 20
+- For questions about multiple metrics: SELECT all relevant columns together
+- Always refer to the schema above to find correct column names — never guess column names
+
 """
 
     # If there was a previous error, tell Gemini what went wrong so it can fix it
@@ -67,9 +85,8 @@ Fix the SQL query based on the error above.
             if not rows:
                 state["sql_result"] = "Query returned no rows."
             else:
-                # Build a list of dicts: [{col: val, col: val}, ...]
                 result_list = [dict(zip(columns, row)) for row in rows]
-                state["sql_result"] = json.dumps(result_list, default=str)
+                state["sql_result"], _ = truncate_rows_for_agents(result_list)
 
             # Clear any previous error since execution succeeded
             state["error"] = ""
